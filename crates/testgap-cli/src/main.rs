@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use testgap_core::config::{self, OutputFormat, TestGapConfig};
+use testgap_core::reporter::ColorMode;
 use testgap_core::types::GapSeverity;
 
 #[derive(Parser)]
@@ -48,6 +49,15 @@ enum Commands {
         #[arg(long, default_value = "critical")]
         ai_severity: CliSeverity,
 
+        /// Color output mode
+        #[arg(long, default_value = "auto")]
+        color: CliColorMode,
+
+        /// Only analyze files changed relative to a git ref.
+        /// Defaults to the remote default branch when used without a value.
+        #[arg(long, num_args = 0..=1, default_missing_value = "@auto")]
+        diff: Option<String>,
+
         /// Verbose output
         #[arg(short, long)]
         verbose: bool,
@@ -66,6 +76,8 @@ enum CliFormat {
     Human,
     Json,
     Markdown,
+    Sarif,
+    Github,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -84,12 +96,21 @@ enum CliSeverity {
     Critical,
 }
 
+#[derive(Clone, ValueEnum)]
+enum CliColorMode {
+    Auto,
+    Always,
+    Never,
+}
+
 impl From<CliFormat> for OutputFormat {
     fn from(f: CliFormat) -> Self {
         match f {
             CliFormat::Human => OutputFormat::Human,
             CliFormat::Json => OutputFormat::Json,
             CliFormat::Markdown => OutputFormat::Markdown,
+            CliFormat::Sarif => OutputFormat::Sarif,
+            CliFormat::Github => OutputFormat::Github,
         }
     }
 }
@@ -116,6 +137,16 @@ impl From<CliSeverity> for GapSeverity {
     }
 }
 
+impl From<CliColorMode> for ColorMode {
+    fn from(c: CliColorMode) -> Self {
+        match c {
+            CliColorMode::Auto => ColorMode::Auto,
+            CliColorMode::Always => ColorMode::Always,
+            CliColorMode::Never => ColorMode::Never,
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -129,10 +160,12 @@ async fn main() -> ExitCode {
             languages,
             min_severity,
             ai_severity,
+            diff,
+            color,
             verbose,
         } => {
             init_tracing(verbose);
-            run_analyze(
+            run_analyze(AnalyzeArgs {
                 path,
                 format,
                 fail_on_critical,
@@ -140,7 +173,9 @@ async fn main() -> ExitCode {
                 languages,
                 min_severity,
                 ai_severity,
-            )
+                diff,
+                color: color.into(),
+            })
             .await
         }
         Commands::Init { force } => {
@@ -163,7 +198,7 @@ fn init_tracing(verbose: bool) {
         .init();
 }
 
-async fn run_analyze(
+struct AnalyzeArgs {
     path: PathBuf,
     format: Option<CliFormat>,
     fail_on_critical: bool,
@@ -171,20 +206,37 @@ async fn run_analyze(
     languages: Option<Vec<CliLanguage>>,
     min_severity: Option<CliSeverity>,
     ai_severity: CliSeverity,
-) -> ExitCode {
-    let mut config = TestGapConfig::load(&path);
+    diff: Option<String>,
+    color: ColorMode,
+}
+
+async fn run_analyze(args: AnalyzeArgs) -> ExitCode {
+    let mut config = TestGapConfig::load(&args.path);
     config.merge_cli_overrides(
-        format.map(Into::into),
-        languages.map(|v| v.into_iter().map(Into::into).collect()),
-        min_severity.map(Into::into),
-        no_ai,
-        Some(ai_severity.into()),
+        args.format.map(Into::into),
+        args.languages
+            .map(|v| v.into_iter().map(Into::into).collect()),
+        args.min_severity.map(Into::into),
+        args.no_ai,
+        Some(args.ai_severity.into()),
     );
 
-    match testgap_core::analyze(&path, &config).await {
+    // Resolve "@auto" sentinel to the actual default branch
+    let diff_ref = match args.diff.as_deref() {
+        Some("@auto") => match testgap_core::git_diff::resolve_default_branch(&args.path) {
+            Ok(branch) => Some(branch),
+            Err(e) => {
+                eprintln!("Error: {e}");
+                return ExitCode::from(2);
+            }
+        },
+        other => other.map(String::from),
+    };
+
+    match testgap_core::analyze(&args.path, &config, diff_ref.as_deref()).await {
         Ok(report) => {
-            testgap_core::reporter::print_report(&report, config.format);
-            if fail_on_critical && report.has_critical_gaps() {
+            testgap_core::reporter::print_report(&report, config.format, args.color);
+            if args.fail_on_critical && report.has_critical_gaps() {
                 ExitCode::from(1)
             } else {
                 ExitCode::SUCCESS

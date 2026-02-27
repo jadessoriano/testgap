@@ -76,7 +76,7 @@ async fn test_analyze_finds_gaps() {
     let mut config = TestGapConfig::default();
     config.ai.enabled = false;
 
-    let report = analyze(dir.path(), &config)
+    let report = analyze(dir.path(), &config, None)
         .await
         .expect("analyze should succeed on valid fixture");
 
@@ -111,7 +111,7 @@ async fn test_analyze_empty_dir() {
     let mut config = TestGapConfig::default();
     config.ai.enabled = false;
 
-    let result = analyze(dir.path(), &config).await;
+    let result = analyze(dir.path(), &config, None).await;
 
     assert!(
         result.is_err(),

@@ -32,6 +32,8 @@ pub enum OutputFormat {
     Human,
     Json,
     Markdown,
+    Sarif,
+    Github,
 }
 
 impl std::fmt::Display for OutputFormat {
@@ -40,6 +42,8 @@ impl std::fmt::Display for OutputFormat {
             OutputFormat::Human => f.write_str("human"),
             OutputFormat::Json => f.write_str("json"),
             OutputFormat::Markdown => f.write_str("markdown"),
+            OutputFormat::Sarif => f.write_str("sarif"),
+            OutputFormat::Github => f.write_str("github"),
         }
     }
 }
@@ -262,7 +266,7 @@ exclude = [
 # Minimum severity to report: "info", "warning", or "critical"
 min_severity = "info"
 
-# Output format: "human", "json", or "markdown"
+# Output format: "human", "json", "markdown", "sarif", or "github"
 format = "human"
 
 [ai]

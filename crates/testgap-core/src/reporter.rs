@@ -1,19 +1,78 @@
 use crate::config::OutputFormat;
 use crate::types::{AnalysisReport, GapSeverity, TestGap};
+use owo_colors::OwoColorize;
+use std::path::Path;
 
-pub fn print_report(report: &AnalysisReport, format: OutputFormat) {
-    match format {
-        OutputFormat::Human => print_human(report),
-        OutputFormat::Json => print_json(report),
-        OutputFormat::Markdown => print_markdown(report),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColorMode {
+    Auto,
+    Always,
+    Never,
+}
+
+impl ColorMode {
+    pub fn should_color(self) -> bool {
+        match self {
+            ColorMode::Always => true,
+            ColorMode::Never => false,
+            ColorMode::Auto => {
+                if std::env::var_os("NO_COLOR").is_some() {
+                    return false;
+                }
+                supports_color::on(supports_color::Stream::Stdout).is_some()
+            }
+        }
     }
 }
 
-fn print_human(report: &AnalysisReport) {
+pub fn print_report(report: &AnalysisReport, format: OutputFormat, color: ColorMode) {
+    match format {
+        OutputFormat::Human => print_human(report, color.should_color()),
+        OutputFormat::Json => print_json(report),
+        OutputFormat::Markdown => print_markdown(report),
+        OutputFormat::Sarif => print_sarif(report),
+        OutputFormat::Github => print_github(report),
+    }
+}
+
+fn coverage_bar(pct: f64, use_color: bool) -> String {
+    const WIDTH: usize = 20;
+    let filled = ((pct / 100.0) * WIDTH as f64).round() as usize;
+    let filled = filled.min(WIDTH);
+    let empty = WIDTH - filled;
+
+    let bar_filled = "\u{2588}".repeat(filled);
+    let bar_empty = "\u{2591}".repeat(empty);
+    let pct_str = format!("{pct:.1}%");
+
+    if use_color {
+        format!(
+            "[{}{}] {}",
+            bar_filled.green(),
+            bar_empty.dimmed(),
+            pct_str.green().bold(),
+        )
+    } else {
+        format!("[{bar_filled}{bar_empty}] {pct_str}")
+    }
+}
+
+fn print_human(report: &AnalysisReport, use_color: bool) {
     println!();
-    println!("  testgap — Test Gap Analysis");
-    println!("  {}", "─".repeat(40));
+    if use_color {
+        println!(
+            "  {} {}",
+            "\u{25C8}".bold(),
+            "testgap \u{2014} Test Gap Analysis".bold()
+        );
+    } else {
+        println!("  testgap \u{2014} Test Gap Analysis");
+    }
+    println!("  {}", "\u{2500}".repeat(40));
     println!("  Project:   {}", report.project_path.display());
+    if let Some(ref base) = report.diff_base {
+        println!("  Diff base: {base}");
+    }
     println!(
         "  Languages: {}",
         report
@@ -24,10 +83,8 @@ fn print_human(report: &AnalysisReport) {
             .join(", ")
     );
     println!(
-        "  Coverage:  {}/{} functions ({:.1}%)",
-        report.tested_functions,
-        report.total_functions,
-        report.coverage_percent()
+        "  Coverage:  {}",
+        coverage_bar(report.coverage_percent(), use_color),
     );
     println!(
         "  AI:        {}",
@@ -40,7 +97,11 @@ fn print_human(report: &AnalysisReport) {
     println!();
 
     if report.gaps.is_empty() {
-        println!("  No test gaps found!");
+        if use_color {
+            println!("  {} No test gaps found!", "\u{2714}".green().bold());
+        } else {
+            println!("  No test gaps found!");
+        }
         println!();
         return;
     }
@@ -50,36 +111,60 @@ fn print_human(report: &AnalysisReport) {
     let info = report.gaps_by_severity(GapSeverity::Info);
 
     if !critical.is_empty() {
-        println!("  CRITICAL ({}) ─────────────────────────", critical.len());
+        let header = format!("\u{2716} CRITICAL ({}) \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}", critical.len());
+        if use_color {
+            println!("  {}", header.red().bold());
+        } else {
+            println!("  {header}");
+        }
         for gap in &critical {
-            print_gap_human(gap);
+            print_gap_human(gap, use_color);
         }
         println!();
     }
 
     if !warnings.is_empty() {
-        println!("  WARNING ({}) ──────────────────────────", warnings.len());
+        let header = format!("\u{25B2} WARNING ({}) \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}", warnings.len());
+        if use_color {
+            println!("  {}", header.yellow().bold());
+        } else {
+            println!("  {header}");
+        }
         for gap in &warnings {
-            print_gap_human(gap);
+            print_gap_human(gap, use_color);
         }
         println!();
     }
 
     if !info.is_empty() {
-        println!("  INFO ({}) ─────────────────────────────", info.len());
+        let header = format!("\u{25CF} INFO ({}) \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}", info.len());
+        if use_color {
+            println!("  {}", header.dimmed());
+        } else {
+            println!("  {header}");
+        }
         for gap in &info {
-            print_gap_human(gap);
+            print_gap_human(gap, use_color);
         }
         println!();
     }
 
     // Summary
-    println!(
-        "  Summary: {} critical, {} warning, {} info",
-        critical.len(),
-        warnings.len(),
-        info.len()
-    );
+    if use_color {
+        println!(
+            "  Summary: {} critical, {} warning, {} info",
+            critical.len().to_string().red().bold(),
+            warnings.len().to_string().yellow().bold(),
+            info.len().to_string().dimmed(),
+        );
+    } else {
+        println!(
+            "  Summary: {} critical, {} warning, {} info",
+            critical.len(),
+            warnings.len(),
+            info.len()
+        );
+    }
 
     if let Some(ref usage) = report.token_usage {
         println!(
@@ -90,12 +175,24 @@ fn print_human(report: &AnalysisReport) {
     println!();
 }
 
-fn print_gap_human(gap: &TestGap) {
+fn print_gap_human(gap: &TestGap, use_color: bool) {
     let f = &gap.function;
-    println!("    {} {}:{}", f.name, f.file_path.display(), f.line_start);
+    if use_color {
+        println!(
+            "    {} {}",
+            f.name.bold(),
+            format!("{}:{}", f.file_path.display(), f.line_start).dimmed(),
+        );
+    } else {
+        println!("    {} {}:{}", f.name, f.file_path.display(), f.line_start);
+    }
     println!("      {}", gap.reason);
     println!("      Signature: {}", truncate(&f.signature, 80));
-    println!("      Complexity: {}", f.complexity);
+    if use_color && f.complexity >= 5 {
+        println!("      Complexity: {}", f.complexity.yellow());
+    } else {
+        println!("      Complexity: {}", f.complexity);
+    }
 
     if let Some(ref ai) = gap.ai_analysis {
         println!("      AI Risk: {}", ai.risk_assessment);
@@ -121,6 +218,9 @@ fn print_markdown(report: &AnalysisReport) {
     println!("# Test Gap Analysis Report");
     println!();
     println!("**Project:** `{}`", report.project_path.display());
+    if let Some(ref base) = report.diff_base {
+        println!("**Diff base:** `{base}`");
+    }
     println!(
         "**Languages:** {}",
         report
@@ -194,7 +294,7 @@ fn print_markdown(report: &AnalysisReport) {
 fn print_gap_markdown(gap: &TestGap) {
     let f = &gap.function;
     println!(
-        "### `{}` — `{}:{}`",
+        "### `{}` \u{2014} `{}:{}`",
         f.name,
         f.file_path.display(),
         f.line_start
@@ -218,6 +318,122 @@ fn print_gap_markdown(gap: &TestGap) {
     println!();
 }
 
+// ── SARIF output ──────────────────────────────────────────────────────
+
+fn print_sarif(report: &AnalysisReport) {
+    let sarif = build_sarif(report);
+    match serde_json::to_string_pretty(&sarif) {
+        Ok(json) => println!("{json}"),
+        Err(e) => eprintln!("Failed to serialize SARIF: {e}"),
+    }
+}
+
+pub fn build_sarif(report: &AnalysisReport) -> serde_json::Value {
+    let rules = serde_json::json!([
+        {
+            "id": "testgap/critical",
+            "shortDescription": { "text": "Critical test gap" },
+            "defaultConfiguration": { "level": "error" }
+        },
+        {
+            "id": "testgap/warning",
+            "shortDescription": { "text": "Warning test gap" },
+            "defaultConfiguration": { "level": "warning" }
+        },
+        {
+            "id": "testgap/info",
+            "shortDescription": { "text": "Informational test gap" },
+            "defaultConfiguration": { "level": "note" }
+        }
+    ]);
+
+    let project_path = &report.project_path;
+
+    let results: Vec<serde_json::Value> = report
+        .gaps
+        .iter()
+        .map(|gap| {
+            let (rule_id, level) = match gap.severity {
+                GapSeverity::Critical => ("testgap/critical", "error"),
+                GapSeverity::Warning => ("testgap/warning", "warning"),
+                GapSeverity::Info => ("testgap/info", "note"),
+            };
+
+            let rel_path = make_relative(&gap.function.file_path, project_path);
+
+            serde_json::json!({
+                "ruleId": rule_id,
+                "level": level,
+                "message": {
+                    "text": format!("Untested function `{}`: {}", gap.function.name, gap.reason)
+                },
+                "locations": [{
+                    "physicalLocation": {
+                        "artifactLocation": {
+                            "uri": rel_path,
+                            "uriBaseId": "%SRCROOT%"
+                        },
+                        "region": {
+                            "startLine": gap.function.line_start,
+                            "endLine": gap.function.line_end
+                        }
+                    }
+                }]
+            })
+        })
+        .collect();
+
+    serde_json::json!({
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {
+                "driver": {
+                    "name": "testgap",
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "rules": rules
+                }
+            },
+            "results": results
+        }]
+    })
+}
+
+// ── GitHub annotations output ─────────────────────────────────────────
+
+fn print_github(report: &AnalysisReport) {
+    let project_path = &report.project_path;
+    for gap in &report.gaps {
+        println!("{}", format_github_line(gap, project_path));
+    }
+}
+
+pub fn format_github_line(gap: &TestGap, project_path: &Path) -> String {
+    let cmd = match gap.severity {
+        GapSeverity::Critical => "error",
+        GapSeverity::Warning => "warning",
+        GapSeverity::Info => "notice",
+    };
+
+    let f = &gap.function;
+    let rel_path = make_relative(&f.file_path, project_path);
+    format!(
+        "::{cmd} file={rel_path},line={line},endLine={end},title=Untested: {name}::{reason}",
+        line = f.line_start,
+        end = f.line_end,
+        name = f.name,
+        reason = gap.reason,
+    )
+}
+
+/// Strip project_path prefix to produce a relative path string.
+fn make_relative(abs: &Path, project_path: &Path) -> String {
+    abs.strip_prefix(project_path)
+        .unwrap_or(abs)
+        .display()
+        .to_string()
+}
+
 fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()
@@ -234,6 +450,7 @@ fn truncate(s: &str, max: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::types::*;
     use std::path::PathBuf;
 
@@ -271,6 +488,7 @@ mod tests {
             languages_analyzed: vec![Language::Rust, Language::TypeScript],
             ai_enabled: false,
             token_usage: None,
+            diff_base: None,
         };
 
         let json = serde_json::to_string(&report).expect("should serialize to JSON");
@@ -312,6 +530,7 @@ mod tests {
                 input_tokens: 1500,
                 output_tokens: 300,
             }),
+            diff_base: None,
         };
 
         let json = serde_json::to_string(&report).expect("should serialize");
@@ -341,6 +560,7 @@ mod tests {
             languages_analyzed: vec![Language::Rust],
             ai_enabled: false,
             token_usage: None,
+            diff_base: None,
         };
 
         // Should not panic
@@ -362,6 +582,7 @@ mod tests {
             languages_analyzed: vec![Language::Rust],
             ai_enabled: false,
             token_usage: None,
+            diff_base: None,
         };
 
         let pct = report.coverage_percent();
@@ -378,6 +599,7 @@ mod tests {
             languages_analyzed: vec![],
             ai_enabled: false,
             token_usage: None,
+            diff_base: None,
         };
 
         let json = serde_json::to_string(&report).expect("should serialize empty report");
@@ -387,5 +609,172 @@ mod tests {
         assert_eq!(deserialized.total_functions, 0);
         assert_eq!(deserialized.gaps.len(), 0);
         assert_eq!(deserialized.coverage_percent(), 100.0);
+    }
+
+    #[test]
+    fn color_mode_never_disables_color() {
+        assert!(!ColorMode::Never.should_color());
+    }
+
+    #[test]
+    fn color_mode_always_enables_color() {
+        assert!(ColorMode::Always.should_color());
+    }
+
+    #[test]
+    fn coverage_bar_plain() {
+        let bar = coverage_bar(50.0, false);
+        assert!(bar.contains("["));
+        assert!(bar.contains("]"));
+        assert!(bar.contains("50.0%"));
+    }
+
+    #[test]
+    fn coverage_bar_zero() {
+        let bar = coverage_bar(0.0, false);
+        assert!(bar.contains("0.0%"));
+    }
+
+    #[test]
+    fn coverage_bar_hundred() {
+        let bar = coverage_bar(100.0, false);
+        assert!(bar.contains("100.0%"));
+    }
+
+    // ── SARIF tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn sarif_schema_version() {
+        let report = AnalysisReport {
+            project_path: PathBuf::from("/tmp/sarif"),
+            total_functions: 1,
+            tested_functions: 0,
+            gaps: vec![make_gap("func_a", GapSeverity::Critical, 5)],
+            languages_analyzed: vec![Language::Rust],
+            ai_enabled: false,
+            token_usage: None,
+            diff_base: None,
+        };
+        let sarif = build_sarif(&report);
+        assert_eq!(sarif["version"], "2.1.0");
+        assert!(sarif["$schema"]
+            .as_str()
+            .unwrap()
+            .contains("sarif-schema-2.1.0"));
+    }
+
+    #[test]
+    fn sarif_severity_mapping() {
+        let report = AnalysisReport {
+            project_path: PathBuf::from("/tmp/sarif"),
+            total_functions: 3,
+            tested_functions: 0,
+            gaps: vec![
+                make_gap("crit", GapSeverity::Critical, 5),
+                make_gap("warn", GapSeverity::Warning, 3),
+                make_gap("info_fn", GapSeverity::Info, 1),
+            ],
+            languages_analyzed: vec![Language::Rust],
+            ai_enabled: false,
+            token_usage: None,
+            diff_base: None,
+        };
+        let sarif = build_sarif(&report);
+        let results = sarif["runs"][0]["results"].as_array().unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0]["level"], "error");
+        assert_eq!(results[0]["ruleId"], "testgap/critical");
+        assert_eq!(results[1]["level"], "warning");
+        assert_eq!(results[1]["ruleId"], "testgap/warning");
+        assert_eq!(results[2]["level"], "note");
+        assert_eq!(results[2]["ruleId"], "testgap/info");
+    }
+
+    #[test]
+    fn sarif_empty_gaps_empty_results() {
+        let report = AnalysisReport {
+            project_path: PathBuf::from("/tmp/sarif"),
+            total_functions: 5,
+            tested_functions: 5,
+            gaps: vec![],
+            languages_analyzed: vec![Language::Rust],
+            ai_enabled: false,
+            token_usage: None,
+            diff_base: None,
+        };
+        let sarif = build_sarif(&report);
+        let results = sarif["runs"][0]["results"].as_array().unwrap();
+        assert!(results.is_empty());
+    }
+
+    // ── GitHub annotations tests ────────────────────────────────────
+
+    #[test]
+    fn github_critical_format() {
+        let gap = make_gap("risky_fn", GapSeverity::Critical, 8);
+        let project = PathBuf::from("");
+        let line = format_github_line(&gap, &project);
+        assert!(
+            line.starts_with("::error "),
+            "expected ::error, got: {line}"
+        );
+        assert!(line.contains("file=src/lib.rs"));
+        assert!(line.contains("title=Untested: risky_fn"));
+    }
+
+    #[test]
+    fn github_warning_format() {
+        let gap = make_gap("warn_fn", GapSeverity::Warning, 3);
+        let project = PathBuf::from("");
+        let line = format_github_line(&gap, &project);
+        assert!(
+            line.starts_with("::warning "),
+            "expected ::warning, got: {line}"
+        );
+    }
+
+    #[test]
+    fn github_info_format() {
+        let gap = make_gap("info_fn", GapSeverity::Info, 1);
+        let project = PathBuf::from("");
+        let line = format_github_line(&gap, &project);
+        assert!(
+            line.starts_with("::notice "),
+            "expected ::notice, got: {line}"
+        );
+    }
+
+    #[test]
+    fn github_strips_absolute_path() {
+        let mut gap = make_gap("func", GapSeverity::Critical, 5);
+        gap.function.file_path = PathBuf::from("/home/user/project/src/lib.rs");
+        let project = PathBuf::from("/home/user/project");
+        let line = format_github_line(&gap, &project);
+        assert!(
+            line.contains("file=src/lib.rs"),
+            "expected relative path, got: {line}"
+        );
+    }
+
+    #[test]
+    fn sarif_uses_relative_paths() {
+        let mut gap = make_gap("func", GapSeverity::Critical, 5);
+        gap.function.file_path = PathBuf::from("/home/user/project/src/lib.rs");
+        let report = AnalysisReport {
+            project_path: PathBuf::from("/home/user/project"),
+            total_functions: 1,
+            tested_functions: 0,
+            gaps: vec![gap],
+            languages_analyzed: vec![Language::Rust],
+            ai_enabled: false,
+            token_usage: None,
+            diff_base: None,
+        };
+        let sarif = build_sarif(&report);
+        let uri = sarif["runs"][0]["results"][0]["locations"][0]["physicalLocation"]
+            ["artifactLocation"]["uri"]
+            .as_str()
+            .unwrap();
+        assert_eq!(uri, "src/lib.rs", "SARIF should use relative paths");
     }
 }

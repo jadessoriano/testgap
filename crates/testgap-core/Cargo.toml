@@ -23,6 +23,9 @@ tracing = "0.1"
 thiserror = "2"
 futures = "0.3"
 streaming-iterator = "0.1"
+owo-colors = "4"
+supports-color = "3"
+indicatif = "0.17"
 
 [dev-dependencies]
 tempfile = "3"

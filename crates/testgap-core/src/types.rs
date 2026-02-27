@@ -97,6 +97,8 @@ pub struct AnalysisReport {
     pub languages_analyzed: Vec<Language>,
     pub ai_enabled: bool,
     pub token_usage: Option<TokenUsage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diff_base: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,6 +168,7 @@ mod tests {
             languages_analyzed: vec![Language::Rust],
             ai_enabled: false,
             token_usage: None,
+            diff_base: None,
         }
     }
 

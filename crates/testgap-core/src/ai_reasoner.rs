@@ -7,6 +7,7 @@ const API_URL: &str = "https://api.anthropic.com/v1/messages";
 pub async fn analyze_gaps(
     gaps: &mut [&mut TestGap],
     config: &TestGapConfig,
+    progress: Option<&indicatif::ProgressBar>,
 ) -> std::result::Result<TokenUsage, TestGapError> {
     let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
         TestGapError::AiApi("ANTHROPIC_API_KEY not set. Use --no-ai to skip AI analysis.".into())
@@ -41,6 +42,9 @@ pub async fn analyze_gaps(
                 Err(e) => {
                     tracing::warn!("AI analysis failed for {}: {e}", gap.function.name);
                 }
+            }
+            if let Some(pb) = progress {
+                pb.inc(1);
             }
         }
     }
