@@ -1,0 +1,34 @@
+# testgap configuration
+# Copy this to .testgap.toml in your project root
+
+# Glob patterns to exclude from analysis
+exclude = [
+    "**/target/**",
+    "**/node_modules/**",
+    "**/.git/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/vendor/**",
+    "**/__pycache__/**",
+    "**/.venv/**",
+]
+
+# Restrict analysis to specific languages (comment out to auto-detect)
+# languages = ["rust", "typescript", "python"]
+
+# Minimum severity to report: "info", "warning", or "critical"
+min_severity = "info"
+
+# Output format: "human", "json", or "markdown"
+format = "human"
+
+[ai]
+enabled = true
+model = "claude-sonnet-4-20250514"
+batch_size = 5
+max_function_body_tokens = 2000
+
+[test_patterns]
+test_dirs = ["tests", "test", "__tests__", "spec"]
+test_file_suffixes = ["_test", ".test", ".spec", "_spec"]
+test_file_prefixes = ["test_"]

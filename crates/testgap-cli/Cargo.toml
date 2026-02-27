@@ -1,0 +1,16 @@
+[package]
+name = "testgap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "testgap"
+path = "src/main.rs"
+
+[dependencies]
+testgap-core = { path = "../testgap-core" }
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
