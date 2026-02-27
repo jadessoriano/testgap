@@ -12,23 +12,26 @@ pub fn extract_functions(file: &SourceFile) -> Result<Vec<ExtractedFunction>> {
     let ts_language = language_registry::get_language(lang);
 
     let mut parser = tree_sitter::Parser::new();
-    parser.set_language(&ts_language).map_err(|e| TestGapError::Parse {
-        file: file.path.display().to_string(),
-        message: e.to_string(),
-    })?;
+    parser
+        .set_language(&ts_language)
+        .map_err(|e| TestGapError::Parse {
+            file: file.path.display().to_string(),
+            message: e.to_string(),
+        })?;
 
-    let tree = parser.parse(&source, None).ok_or_else(|| TestGapError::Parse {
-        file: file.path.display().to_string(),
-        message: "Failed to parse file".into(),
-    })?;
+    let tree = parser
+        .parse(&source, None)
+        .ok_or_else(|| TestGapError::Parse {
+            file: file.path.display().to_string(),
+            message: "Failed to parse file".into(),
+        })?;
 
     let query_src = language_registry::function_query(lang);
-    let query = tree_sitter::Query::new(&ts_language, query_src).map_err(|e| {
-        TestGapError::Parse {
+    let query =
+        tree_sitter::Query::new(&ts_language, query_src).map_err(|e| TestGapError::Parse {
             file: file.path.display().to_string(),
             message: format!("Query error: {e}"),
-        }
-    })?;
+        })?;
 
     let mut cursor = tree_sitter::QueryCursor::new();
     let mut matches = cursor.matches(&query, tree.root_node(), source.as_bytes());
@@ -175,10 +178,7 @@ fn check_visibility(source: &str, node: tree_sitter::Node, lang: Language) -> bo
                 } else {
                     after_func
                 };
-                name_part
-                    .chars()
-                    .next()
-                    .map_or(false, |c| c.is_uppercase())
+                name_part.chars().next().is_some_and(|c| c.is_uppercase())
             } else {
                 false
             }
@@ -231,12 +231,184 @@ fn check_is_test(
 fn estimate_complexity(body: &str) -> u32 {
     // Simple cyclomatic complexity estimate: count branching keywords
     let keywords = [
-        "if ", "else ", "else{", "match ", "for ", "while ", "loop ", "case ",
-        "catch ", "except ", "elif ", "?", "&&", "||", "switch ",
+        "if ", "else ", "else{", "match ", "for ", "while ", "loop ", "case ", "catch ", "except ",
+        "elif ", "?", "&&", "||", "switch ",
     ];
     let mut complexity: u32 = 1; // base complexity
     for kw in &keywords {
         complexity += body.matches(kw).count() as u32;
     }
     complexity
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::function_extractor::extract_functions;
+    use crate::test_mapper::SourceFile;
+    use crate::types::Language;
+    use std::io::Write;
+    use tempfile;
+
+    #[test]
+    fn parse_rust_snippet() {
+        let mut file = tempfile::Builder::new().suffix(".rs").tempfile().unwrap();
+        writeln!(
+            file,
+            r#"pub fn add(a: i32, b: i32) -> i32 {{
+    a + b
+}}
+
+pub fn complex_calc(x: i32) -> i32 {{
+    if x > 0 {{
+        for i in 0..x {{
+            if i % 2 == 0 {{
+                return i;
+            }}
+        }}
+    }}
+    x
+}}"#
+        )
+        .unwrap();
+        file.flush().unwrap();
+
+        let source = SourceFile {
+            path: file.path().to_path_buf(),
+            language: Language::Rust,
+            is_test: false,
+        };
+
+        let funcs = extract_functions(&source).unwrap();
+        assert!(
+            funcs.len() >= 2,
+            "expected at least 2 functions, got {}",
+            funcs.len()
+        );
+
+        let add_fn = funcs
+            .iter()
+            .find(|f| f.name == "add")
+            .expect("should find 'add'");
+        assert!(add_fn.is_public, "add should be public");
+        assert!(add_fn.line_start >= 1);
+        assert!(add_fn.line_end >= add_fn.line_start);
+        assert!(
+            add_fn.signature.contains("fn add"),
+            "signature should contain 'fn add', got: {}",
+            add_fn.signature
+        );
+
+        let complex_fn = funcs
+            .iter()
+            .find(|f| f.name == "complex_calc")
+            .expect("should find 'complex_calc'");
+        assert!(complex_fn.is_public, "complex_calc should be public");
+    }
+
+    #[test]
+    fn parse_typescript_snippet() {
+        let mut file = tempfile::Builder::new().suffix(".ts").tempfile().unwrap();
+        writeln!(
+            file,
+            r#"export function greet(name: string): string {{
+    return "hello " + name;
+}}"#
+        )
+        .unwrap();
+        file.flush().unwrap();
+
+        let source = SourceFile {
+            path: file.path().to_path_buf(),
+            language: Language::TypeScript,
+            is_test: false,
+        };
+
+        let funcs = extract_functions(&source).unwrap();
+        assert!(!funcs.is_empty(), "expected at least 1 function");
+
+        let greet_fn = funcs
+            .iter()
+            .find(|f| f.name == "greet")
+            .expect("should find 'greet'");
+        assert!(greet_fn.is_public, "exported function should be public");
+        assert_eq!(greet_fn.name, "greet");
+    }
+
+    #[test]
+    fn parse_python_snippet() {
+        let mut file = tempfile::Builder::new().suffix(".py").tempfile().unwrap();
+        write!(
+            file,
+            "def calculate(x, y):\n    if x > 0:\n        return x + y\n    return y\n"
+        )
+        .unwrap();
+        file.flush().unwrap();
+
+        let source = SourceFile {
+            path: file.path().to_path_buf(),
+            language: Language::Python,
+            is_test: false,
+        };
+
+        let funcs = extract_functions(&source).unwrap();
+        assert!(!funcs.is_empty(), "expected at least 1 function");
+
+        let calc_fn = funcs
+            .iter()
+            .find(|f| f.name == "calculate")
+            .expect("should find 'calculate'");
+        assert!(
+            calc_fn.is_public,
+            "calculate should be public (no leading underscore)"
+        );
+        assert_eq!(calc_fn.name, "calculate");
+    }
+
+    #[test]
+    fn complexity_estimation_via_extract() {
+        let mut file = tempfile::Builder::new().suffix(".rs").tempfile().unwrap();
+        writeln!(
+            file,
+            r#"pub fn branchy(x: i32, y: i32) -> i32 {{
+    if x > 0 {{
+        if y > 0 {{
+            for i in 0..x {{
+                match i {{
+                    0 => return 0,
+                    _ => {{
+                        if i > 5 && y < 10 {{
+                            return i;
+                        }}
+                    }}
+                }}
+            }}
+        }}
+    }} else {{
+        while x > 0 {{
+            return y;
+        }}
+    }}
+    x + y
+}}"#
+        )
+        .unwrap();
+        file.flush().unwrap();
+
+        let source = SourceFile {
+            path: file.path().to_path_buf(),
+            language: Language::Rust,
+            is_test: false,
+        };
+
+        let funcs = extract_functions(&source).unwrap();
+        let branchy = funcs
+            .iter()
+            .find(|f| f.name == "branchy")
+            .expect("should find 'branchy'");
+        assert!(
+            branchy.complexity > 1,
+            "complex function should have complexity > 1, got {}",
+            branchy.complexity
+        );
+    }
 }

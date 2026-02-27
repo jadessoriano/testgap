@@ -122,7 +122,15 @@ async fn main() -> ExitCode {
             verbose,
         } => {
             init_tracing(verbose);
-            run_analyze(path, format, fail_on_critical, no_ai, languages, min_severity).await
+            run_analyze(
+                path,
+                format,
+                fail_on_critical,
+                no_ai,
+                languages,
+                min_severity,
+            )
+            .await
         }
         Commands::Init { force } => {
             init_tracing(false);
@@ -177,7 +185,9 @@ async fn run_analyze(
 }
 
 fn run_init(force: bool) -> ExitCode {
-    let path = std::env::current_dir().unwrap_or_default().join(".testgap.toml");
+    let path = std::env::current_dir()
+        .unwrap_or_default()
+        .join(".testgap.toml");
     if path.exists() && !force {
         eprintln!(
             "Config file already exists: {}\nUse --force to overwrite.",

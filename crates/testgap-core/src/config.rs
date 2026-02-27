@@ -265,3 +265,140 @@ test_file_prefixes = ["test_"]
 "#
     .to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── default config values ───────────────────────────────────────
+
+    #[test]
+    fn default_config_exclude_patterns() {
+        let cfg = TestGapConfig::default();
+        let patterns: Vec<&str> = cfg.exclude.iter().map(|s| s.as_str()).collect();
+        assert!(patterns.contains(&"**/target/**"), "should contain target");
+        assert!(
+            patterns.contains(&"**/node_modules/**"),
+            "should contain node_modules"
+        );
+    }
+
+    #[test]
+    fn default_config_format_is_human() {
+        let cfg = TestGapConfig::default();
+        assert_eq!(cfg.format, OutputFormat::Human);
+    }
+
+    #[test]
+    fn default_config_ai_enabled() {
+        let cfg = TestGapConfig::default();
+        assert!(cfg.ai.enabled);
+    }
+
+    #[test]
+    fn default_config_ai_model() {
+        let cfg = TestGapConfig::default();
+        assert_eq!(cfg.ai.model, "claude-sonnet-4-20250514");
+    }
+
+    #[test]
+    fn default_config_ai_batch_size() {
+        let cfg = TestGapConfig::default();
+        assert_eq!(cfg.ai.batch_size, 5);
+    }
+
+    // ── load from valid TOML file ───────────────────────────────────
+
+    #[test]
+    fn load_from_valid_toml_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join(CONFIG_FILENAME);
+        std::fs::write(&config_path, r#"min_severity = "warning""#).unwrap();
+
+        let cfg = TestGapConfig::load(dir.path());
+        assert_eq!(cfg.min_severity, GapSeverity::Warning);
+    }
+
+    // ── load from non-existent dir falls back to defaults ───────────
+
+    #[test]
+    fn load_from_nonexistent_dir_uses_defaults() {
+        let cfg = TestGapConfig::load(Path::new("/tmp/nonexistent_testgap_dir_12345"));
+        // Should be the same as defaults
+        assert_eq!(cfg.format, OutputFormat::Human);
+        assert!(cfg.ai.enabled);
+        assert_eq!(cfg.min_severity, GapSeverity::Info);
+    }
+
+    // ── merge_cli_overrides ─────────────────────────────────────────
+
+    #[test]
+    fn merge_cli_overrides_sets_format() {
+        let mut cfg = TestGapConfig::default();
+        cfg.merge_cli_overrides(Some(OutputFormat::Json), None, None, false);
+        assert_eq!(cfg.format, OutputFormat::Json);
+    }
+
+    #[test]
+    fn merge_cli_overrides_no_ai_disables_ai() {
+        let mut cfg = TestGapConfig::default();
+        assert!(cfg.ai.enabled);
+        cfg.merge_cli_overrides(None, None, None, true);
+        assert!(!cfg.ai.enabled);
+    }
+
+    #[test]
+    fn merge_cli_overrides_sets_languages() {
+        let mut cfg = TestGapConfig::default();
+        cfg.merge_cli_overrides(
+            None,
+            Some(vec![Language::Rust, Language::Python]),
+            None,
+            false,
+        );
+        assert_eq!(cfg.languages, Some(vec![Language::Rust, Language::Python]));
+    }
+
+    #[test]
+    fn merge_cli_overrides_sets_min_severity() {
+        let mut cfg = TestGapConfig::default();
+        cfg.merge_cli_overrides(None, None, Some(GapSeverity::Critical), false);
+        assert_eq!(cfg.min_severity, GapSeverity::Critical);
+    }
+
+    // ── walk-up config file discovery ───────────────────────────────
+
+    #[test]
+    fn load_walks_up_to_find_config() {
+        let root = tempfile::tempdir().unwrap();
+        let a = root.path().join("a");
+        let b = a.join("b");
+        let c = b.join("c");
+        std::fs::create_dir_all(&c).unwrap();
+
+        // Place config in "a/"
+        let config_path = a.join(CONFIG_FILENAME);
+        std::fs::write(&config_path, r#"min_severity = "critical""#).unwrap();
+
+        // Load from "a/b/c/" — should walk up and find it in "a/"
+        let cfg = TestGapConfig::load(&c);
+        assert_eq!(cfg.min_severity, GapSeverity::Critical);
+    }
+
+    // ── generate_default_config round-trips ─────────────────────────
+
+    #[test]
+    fn generate_default_config_round_trips() {
+        let toml_text = generate_default_config();
+        let parsed: TestGapConfig =
+            toml::from_str(&toml_text).expect("generated config should parse");
+
+        // Verify a few known values survive the round-trip
+        assert_eq!(parsed.format, OutputFormat::Human);
+        assert!(parsed.ai.enabled);
+        assert_eq!(parsed.ai.model, "claude-sonnet-4-20250514");
+        assert_eq!(parsed.ai.batch_size, 5);
+        assert_eq!(parsed.min_severity, GapSeverity::Info);
+        assert!(parsed.exclude.contains(&"**/target/**".to_string()));
+    }
+}

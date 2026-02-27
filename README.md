@@ -1,11 +1,53 @@
 # testgap
 
+[![CI](https://github.com/jadessoriano/testgap/actions/workflows/ci.yml/badge.svg)](https://github.com/jadessoriano/testgap/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 AI-powered test gap finder. Scans your codebase with tree-sitter, identifies untested functions, and uses Claude to suggest what tests to write.
 
 ## Install
 
+**From crates.io** (once published):
+
 ```bash
+cargo install testgap
+```
+
+**From source:**
+
+```bash
+git clone https://github.com/jadessoriano/testgap.git
+cd testgap
 cargo install --path crates/testgap-cli
+```
+
+## Quick Demo
+
+```
+$ testgap analyze --no-ai
+
+  testgap — Test Gap Analysis
+  ────────────────────────────────────────
+  Project:   /home/user/my-project
+  Languages: rust, typescript
+  Coverage:  42/68 functions (61.8%)
+  AI:        disabled
+
+  CRITICAL (3) ─────────────────────────
+    process_payment src/billing.rs:47
+      Public function with high complexity (12) and no test coverage
+      Signature: pub fn process_payment(order: &Order, method: PaymentMethod) -> Result<Receipt>
+      Complexity: 12
+
+    validate_schema src/api/handlers.rs:112
+      Public function with high complexity (8) and no test coverage
+      Signature: pub fn validate_schema(input: &Value, schema: &Schema) -> Result<()>
+      Complexity: 8
+
+  WARNING (5) ──────────────────────────
+    ...
+
+  Summary: 3 critical, 5 warning, 18 info
 ```
 
 ## Usage
@@ -14,11 +56,11 @@ cargo install --path crates/testgap-cli
 # Analyze current directory
 testgap analyze
 
-# Analyze a specific project
-testgap analyze ./my-project
-
 # Static analysis only (no AI, no API key needed)
 testgap analyze --no-ai
+
+# Analyze a specific project
+testgap analyze ./my-project
 
 # JSON output for CI
 testgap analyze --format json --fail-on-critical
@@ -36,15 +78,15 @@ testgap analyze --min-severity critical
 testgap init
 ```
 
-## Configuration
+## Supported Languages
 
-Create a `.testgap.toml` in your project root:
-
-```bash
-testgap init
-```
-
-See [.testgap.toml.example](.testgap.toml.example) for all options.
+| Language | Extensions | Test Detection |
+|----------|-----------|----------------|
+| Rust | `.rs` | `#[test]`, `#[cfg(test)]`, `test_` prefix |
+| JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` | `test()`, `it()`, `describe()`, test dirs |
+| TypeScript | `.ts`, `.tsx`, `.mts`, `.cts` | `test()`, `it()`, `describe()`, test dirs |
+| Python | `.py` | `test_` prefix, test dirs |
+| Go | `.go` | `Test` prefix, `*testing.T` parameter |
 
 ## How It Works
 
@@ -57,12 +99,15 @@ See [.testgap.toml.example](.testgap.toml.example) for all options.
    - **Info**: private + untested
 5. **Analyze** (optional) — sends gaps to Claude API for risk assessment and test suggestions
 
-## Supported Languages
+## Configuration
 
-- Rust
-- JavaScript / TypeScript
-- Python
-- Go
+Create a `.testgap.toml` in your project root:
+
+```bash
+testgap init
+```
+
+See [.testgap.toml.example](.testgap.toml.example) for all options.
 
 ## CI Integration
 
@@ -79,6 +124,14 @@ Exit codes:
 ## Environment Variables
 
 - `ANTHROPIC_API_KEY` — required for AI analysis (use `--no-ai` to skip)
+
+## Architecture
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the data flow diagram, module responsibilities, and key design decisions.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, running tests, and how to add a new language.
 
 ## License
 
