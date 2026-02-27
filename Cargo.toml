@@ -6,6 +6,7 @@ resolver = "2"
 version = "0.2.0"
 edition = "2021"
 license = "MIT"
+authors = ["Jade Soriano <jadesiguasoriano@gmail.com>"]
 repository = "https://github.com/jadessoriano/testgap"
 description = "AI-powered test gap finder"
 keywords = ["testing", "coverage", "cli", "ai", "tree-sitter"]
