@@ -1,4 +1,5 @@
-use crate::types::{GapSeverity, Language};
+use crate::types::GapSeverity;
+use crate::types::Language;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -56,6 +57,9 @@ pub struct AiConfig {
 
     #[serde(default = "default_max_function_body_tokens")]
     pub max_function_body_tokens: usize,
+
+    #[serde(default = "default_ai_min_severity")]
+    pub ai_min_severity: GapSeverity,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +111,10 @@ fn default_max_function_body_tokens() -> usize {
     2000
 }
 
+fn default_ai_min_severity() -> GapSeverity {
+    GapSeverity::Critical
+}
+
 fn default_test_dirs() -> Vec<String> {
     vec![
         "tests".into(),
@@ -149,6 +157,7 @@ impl Default for AiConfig {
             model: default_model(),
             batch_size: default_batch_size(),
             max_function_body_tokens: default_max_function_body_tokens(),
+            ai_min_severity: default_ai_min_severity(),
         }
     }
 }
@@ -174,7 +183,7 @@ impl TestGapConfig {
                         return config;
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to parse {}: {e}", path.display());
+                        eprintln!("Warning: failed to parse {}: {e}", path.display());
                     }
                 },
                 Err(e) => {
@@ -193,6 +202,7 @@ impl TestGapConfig {
         languages: Option<Vec<Language>>,
         min_severity: Option<GapSeverity>,
         no_ai: bool,
+        ai_severity: Option<GapSeverity>,
     ) {
         if let Some(f) = format {
             self.format = f;
@@ -205,6 +215,9 @@ impl TestGapConfig {
         }
         if no_ai {
             self.ai.enabled = false;
+        }
+        if let Some(s) = ai_severity {
+            self.ai.ai_min_severity = s;
         }
     }
 }
@@ -335,7 +348,7 @@ mod tests {
     #[test]
     fn merge_cli_overrides_sets_format() {
         let mut cfg = TestGapConfig::default();
-        cfg.merge_cli_overrides(Some(OutputFormat::Json), None, None, false);
+        cfg.merge_cli_overrides(Some(OutputFormat::Json), None, None, false, None);
         assert_eq!(cfg.format, OutputFormat::Json);
     }
 
@@ -343,7 +356,7 @@ mod tests {
     fn merge_cli_overrides_no_ai_disables_ai() {
         let mut cfg = TestGapConfig::default();
         assert!(cfg.ai.enabled);
-        cfg.merge_cli_overrides(None, None, None, true);
+        cfg.merge_cli_overrides(None, None, None, true, None);
         assert!(!cfg.ai.enabled);
     }
 
@@ -355,6 +368,7 @@ mod tests {
             Some(vec![Language::Rust, Language::Python]),
             None,
             false,
+            None,
         );
         assert_eq!(cfg.languages, Some(vec![Language::Rust, Language::Python]));
     }
@@ -362,7 +376,7 @@ mod tests {
     #[test]
     fn merge_cli_overrides_sets_min_severity() {
         let mut cfg = TestGapConfig::default();
-        cfg.merge_cli_overrides(None, None, Some(GapSeverity::Critical), false);
+        cfg.merge_cli_overrides(None, None, Some(GapSeverity::Critical), false, None);
         assert_eq!(cfg.min_severity, GapSeverity::Critical);
     }
 

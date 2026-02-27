@@ -5,7 +5,12 @@ use testgap_core::config::{self, OutputFormat, TestGapConfig};
 use testgap_core::types::GapSeverity;
 
 #[derive(Parser)]
-#[command(name = "testgap", version, about = "AI-powered test gap finder")]
+#[command(
+    name = "testgap",
+    version,
+    about = "AI-powered test gap finder",
+    after_help = "Exit codes:\n  0  Success (no critical gaps, or --fail-on-critical not set)\n  1  Critical gaps found (with --fail-on-critical)\n  2  Runtime error"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -38,6 +43,10 @@ enum Commands {
         /// Minimum severity to report
         #[arg(long)]
         min_severity: Option<CliSeverity>,
+
+        /// Minimum gap severity to send to AI (reduces API cost)
+        #[arg(long, default_value = "critical")]
+        ai_severity: CliSeverity,
 
         /// Verbose output
         #[arg(short, long)]
@@ -119,6 +128,7 @@ async fn main() -> ExitCode {
             no_ai,
             languages,
             min_severity,
+            ai_severity,
             verbose,
         } => {
             init_tracing(verbose);
@@ -129,6 +139,7 @@ async fn main() -> ExitCode {
                 no_ai,
                 languages,
                 min_severity,
+                ai_severity,
             )
             .await
         }
@@ -159,6 +170,7 @@ async fn run_analyze(
     no_ai: bool,
     languages: Option<Vec<CliLanguage>>,
     min_severity: Option<CliSeverity>,
+    ai_severity: CliSeverity,
 ) -> ExitCode {
     let mut config = TestGapConfig::load(&path);
     config.merge_cli_overrides(
@@ -166,6 +178,7 @@ async fn run_analyze(
         languages.map(|v| v.into_iter().map(Into::into).collect()),
         min_severity.map(Into::into),
         no_ai,
+        Some(ai_severity.into()),
     );
 
     match testgap_core::analyze(&path, &config).await {

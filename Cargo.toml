@@ -7,6 +7,10 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/jadessoriano/testgap"
+description = "AI-powered test gap finder"
+keywords = ["testing", "coverage", "cli", "ai", "tree-sitter"]
+categories = ["development-tools::testing", "command-line-utilities"]
+readme = "README.md"
 
 [profile.release]
 opt-level = "z"

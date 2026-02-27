@@ -5,14 +5,17 @@ use crate::TestGapError;
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 
 pub async fn analyze_gaps(
-    gaps: &mut [TestGap],
+    gaps: &mut [&mut TestGap],
     config: &TestGapConfig,
 ) -> std::result::Result<TokenUsage, TestGapError> {
     let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
         TestGapError::AiApi("ANTHROPIC_API_KEY not set. Use --no-ai to skip AI analysis.".into())
     })?;
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| TestGapError::AiApi(e.to_string()))?;
     let batch_size = config.ai.batch_size;
     let max_tokens = config.ai.max_function_body_tokens;
     let model = &config.ai.model;
@@ -181,7 +184,12 @@ fn truncate_body(body: &str, max_tokens: usize) -> String {
     if body.len() <= max_chars {
         body.to_string()
     } else {
-        format!("{}... (truncated)", &body[..max_chars])
+        let boundary = body[..max_chars]
+            .char_indices()
+            .last()
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        format!("{}... (truncated)", &body[..boundary])
     }
 }
 

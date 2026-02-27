@@ -97,7 +97,13 @@ pub fn extract_functions(file: &SourceFile) -> Result<Vec<ExtractedFunction>> {
         });
     }
 
-    // Dedup by (file_path, line_start, name)
+    // Sort then dedup by (file_path, line_start, name)
+    functions.sort_by(|a, b| {
+        a.file_path
+            .cmp(&b.file_path)
+            .then_with(|| a.line_start.cmp(&b.line_start))
+            .then_with(|| a.name.cmp(&b.name))
+    });
     functions.dedup_by(|a, b| {
         a.file_path == b.file_path && a.line_start == b.line_start && a.name == b.name
     });
@@ -124,11 +130,12 @@ fn extract_signature(source: &str, node: tree_sitter::Node, lang: Language) -> S
             }
         }
         Language::Python => {
-            // Take the def line up to the colon
-            if let Some(colon_pos) = text.find(':') {
-                text[..colon_pos].trim().to_string()
+            // Take the def line up to the colon (first line only)
+            let first_line = text.lines().next().unwrap_or("");
+            if let Some(colon_pos) = first_line.rfind(':') {
+                first_line[..colon_pos].trim().to_string()
             } else {
-                text.lines().next().unwrap_or("").to_string()
+                first_line.to_string()
             }
         }
         Language::JavaScript | Language::TypeScript => {
@@ -209,14 +216,18 @@ fn check_is_test(
 
     match lang {
         Language::Rust => {
-            // Check for #[test] or #[cfg(test)] attribute
-            if let Some(prev) = node.prev_sibling() {
+            // Check for #[test] or #[cfg(test)] attribute (walk all preceding siblings)
+            let mut sibling = node.prev_sibling();
+            while let Some(prev) = sibling {
                 if prev.kind() == "attribute_item" {
                     let attr_text = prev.utf8_text(source.as_bytes()).unwrap_or("");
                     if attr_text.contains("test") {
                         return true;
                     }
+                } else {
+                    break;
                 }
+                sibling = prev.prev_sibling();
             }
             name.starts_with("test_")
         }

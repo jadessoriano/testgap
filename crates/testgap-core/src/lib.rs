@@ -8,6 +8,7 @@ pub mod test_mapper;
 pub mod types;
 
 use config::TestGapConfig;
+use rayon::prelude::*;
 use std::path::Path;
 use types::AnalysisReport;
 
@@ -43,16 +44,29 @@ pub async fn analyze(path: &Path, config: &TestGapConfig) -> Result<AnalysisRepo
     tracing::info!("Analyzing {}", path.display());
 
     // Step 1: Scan and extract functions
+    eprintln!("Scanning...");
     let files = test_mapper::scan_directory(&path, config)?;
     if files.source_files.is_empty() {
         return Err(TestGapError::NoFiles(path.display().to_string()));
     }
 
+    eprintln!(
+        "Extracting {} source files + {} test files...",
+        files.source_files.len(),
+        files.test_files.len()
+    );
+
+    let source_results: Vec<_> = files
+        .source_files
+        .par_iter()
+        .map(|file| (file, function_extractor::extract_functions(file)))
+        .collect();
+
     let mut all_functions = Vec::new();
     let mut languages_seen = std::collections::HashSet::new();
 
-    for file in &files.source_files {
-        match function_extractor::extract_functions(file) {
+    for (file, result) in source_results {
+        match result {
             Ok(funcs) => {
                 for f in &funcs {
                     languages_seen.insert(f.language);
@@ -65,9 +79,15 @@ pub async fn analyze(path: &Path, config: &TestGapConfig) -> Result<AnalysisRepo
         }
     }
 
+    let test_results: Vec<_> = files
+        .test_files
+        .par_iter()
+        .map(|file| (file, function_extractor::extract_functions(file)))
+        .collect();
+
     let mut test_functions = Vec::new();
-    for file in &files.test_files {
-        match function_extractor::extract_functions(file) {
+    for (file, result) in test_results {
+        match result {
             Ok(funcs) => test_functions.extend(funcs),
             Err(e) => {
                 tracing::warn!("Skipping test file {}: {e}", file.path.display());
@@ -84,16 +104,26 @@ pub async fn analyze(path: &Path, config: &TestGapConfig) -> Result<AnalysisRepo
     // Step 4: AI analysis (optional)
     let mut token_usage = None;
     if config.ai.enabled {
-        match ai_reasoner::analyze_gaps(&mut gaps, config).await {
-            Ok(usage) => token_usage = Some(usage),
-            Err(e) => {
-                tracing::warn!("AI analysis failed, continuing without it: {e}");
+        let ai_min = config.ai.ai_min_severity;
+        let mut ai_gaps: Vec<_> = gaps.iter_mut().filter(|g| g.severity >= ai_min).collect();
+        if !ai_gaps.is_empty() {
+            match ai_reasoner::analyze_gaps(&mut ai_gaps, config).await {
+                Ok(usage) => token_usage = Some(usage),
+                Err(e) => {
+                    tracing::warn!("AI analysis failed, continuing without it: {e}");
+                }
             }
         }
     }
 
-    let total_functions = all_functions.iter().filter(|f| !f.is_test).count();
-    let tested_functions = total_functions - gaps.len();
+    let source_functions: Vec<_> = all_functions.iter().filter(|f| !f.is_test).collect();
+    let total_functions = source_functions.len();
+    let tested_functions = source_functions
+        .iter()
+        .filter(|f| test_mapping.contains(&test_mapper::function_key(f)))
+        .count();
+
+    eprintln!("Found {} gaps...", gaps.len());
 
     Ok(AnalysisReport {
         project_path: path,

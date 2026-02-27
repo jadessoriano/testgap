@@ -2,9 +2,9 @@ use crate::config::TestGapConfig;
 use crate::language_registry;
 use crate::types::{ExtractedFunction, Language};
 use crate::Result;
+use ignore::WalkBuilder;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
 
 #[derive(Debug)]
 pub struct SourceFile {
@@ -35,12 +35,13 @@ pub fn scan_directory(root: &Path, config: &TestGapConfig) -> Result<ScannedFile
     let mut source_files = Vec::new();
     let mut test_files = Vec::new();
 
-    for entry in WalkDir::new(root)
+    for entry in WalkBuilder::new(root)
         .follow_links(false)
-        .into_iter()
+        .hidden(true)
+        .build()
         .filter_map(|e| e.ok())
     {
-        if !entry.file_type().is_file() {
+        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }
 

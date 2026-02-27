@@ -91,57 +91,6 @@ pub fn function_query(lang: Language) -> &'static str {
     }
 }
 
-/// Returns the tree-sitter query for extracting test functions.
-pub fn test_query(lang: Language) -> &'static str {
-    match lang {
-        Language::Rust => {
-            r#"
-            (attribute_item
-                (attribute
-                    (identifier) @attr_name
-                )
-            )
-
-            (function_item
-                name: (identifier) @name
-            ) @function
-            "#
-        }
-        Language::JavaScript | Language::TypeScript => {
-            // Match describe/it/test call expressions
-            r#"
-            (call_expression
-                function: (identifier) @call_name
-                arguments: (arguments
-                    (string) @test_name
-                )
-            ) @function
-            "#
-        }
-        Language::Python => {
-            r#"
-            (function_definition
-                name: (identifier) @name
-            ) @function
-            "#
-        }
-        Language::Go => {
-            r#"
-            (function_declaration
-                name: (identifier) @name
-                parameters: (parameter_list
-                    (parameter_declaration
-                        type: (pointer_type
-                            (qualified_type) @param_type
-                        )
-                    )
-                )
-            ) @function
-            "#
-        }
-    }
-}
-
 /// Check if a file path is a test file based on naming conventions.
 pub fn is_test_file(
     path: &Path,

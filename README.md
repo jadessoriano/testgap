@@ -74,9 +74,35 @@ testgap analyze --languages rust,typescript
 # Only show critical gaps
 testgap analyze --min-severity critical
 
+# Reduce AI cost — only analyze critical gaps
+testgap analyze --ai-severity critical
+
 # Create a config file
 testgap init
 ```
+
+## Best Practices
+
+**Best use cases:**
+
+- CI gate for untested public APIs
+- Pre-release audit of test coverage
+- Onboarding into an unfamiliar codebase
+- Prioritizing which tests to write first
+
+**When NOT to use testgap:**
+
+- Not a replacement for runtime coverage tools (lcov, tarpaulin, istanbul) — testgap uses static analysis
+- Skip generated or vendored code via exclude patterns in `.testgap.toml`
+- Don't chase 100% — Info-level gaps on private helpers are usually fine
+
+**Tips:**
+
+- Start with `--no-ai` to get a fast baseline without API costs
+- Use `--fail-on-critical` in CI to catch regressions
+- Use `--ai-severity critical` to send only critical gaps to the AI, dramatically reducing API cost
+- Pipe JSON output to `jq` for custom filtering: `testgap analyze --format json | jq '.gaps[] | select(.severity == "critical")'`
+- Add a `.testgap.toml` config file early so the whole team shares the same settings
 
 ## Supported Languages
 
